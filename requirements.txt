@@ -1,0 +1,5 @@
+bleak==0.22.2
+dbus-fast==2.24.2
+losant-mqtt==1.2.1
+paho-mqtt==1.6.1
+typing_extensions==4.12.2
