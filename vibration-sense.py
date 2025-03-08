@@ -5,6 +5,8 @@ import logging
 from dotenv import load_dotenv
 import os
 import struct
+import collections
+import statistics
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -18,14 +20,18 @@ LOSANT_ACCESS_KEY = os.getenv('LOSANT_ACCESS_KEY')
 LOSANT_ACCESS_SECRET = os.getenv('LOSANT_ACCESS_SECRET')
 
 # UUIDs for the service and characteristic
-#VIBRATION_SERVICE_UUID = "19B10000-E8F2-537E-4F6C-D104768A1214"
-#VIBRATION_CHARACTERISTIC_UUID = "19B10001-E8F2-537E-4F6C-D104768A1214"
 VIBRATION_SERVICE_UUID = "180D"
 VIBRATION_CHARACTERISTIC_UUID = "2A40"
 
 # Global variable to store the Losant device
 losant_device = None
 losant_device = Device(LOSANT_DEVICE_ID, LOSANT_ACCESS_KEY, LOSANT_ACCESS_SECRET)
+
+#initialize vibration queue
+vibration_data = collections.deque(maxlen=10)
+
+#vibrations latch
+vibrations_detected = False
 
 def on_command(device, command):
     print("Command received.")
@@ -38,23 +44,28 @@ async def notification_handler(sender, data):
     """Handles incoming BLE notifications from the Arduino."""
     # Data is a bytearray
     vibration_mag_float = struct.unpack('<f', data)[0]
+    vibration_data.append(vibration_mag_float)
 
-    print(vibration_mag_float)
+    global vibrations_detected
 
-    vibration_status = 0
+    if len(vibration_data) > 9:
+        vib_stdev = statistics.stdev(vibration_data)
+        print(vib_stdev)
 
-    if vibration_status == 1:
-        print("Vibrations are occurring!")
-        if losant_device.is_connected():
-            losant_device.send_state({'vibrationDetected': True})
-        else:
-            print('Losant not connected...Status 1')
-    else:
-        print("Vibrations Stopped!")
-        if losant_device.is_connected():
-            losant_device.send_state({'vibrationDetected': False, 'vibrationMagnitude': vibration_mag_float })
-        else:
-            print('Losant not connected...Status 0')
+        if not vibrations_detected and vib_stdev > 0.002:
+            vibrations_detected = True
+            print("Vibrations are occurring!")
+            if losant_device.is_connected():
+                losant_device.send_state({'vibrationDetected': True, 'vibrationMagnitude': vibration_mag_float})
+            else:
+                print('Losant not connected...Status 1')
+        if vibrations_detected and vib_stdev < 0.002:
+            vibrations_detected = False
+            print("No Vibrations or Vibrations Stopped!")
+            if losant_device.is_connected():
+                losant_device.send_state({'vibrationDetected': False, 'vibrationMagnitude': vibration_mag_float })
+            else:
+                print('Losant not connected...Status 0')
 
 async def scan():
     return await BleakScanner.find_device_by_name("Nano33BLE_Vibration")
