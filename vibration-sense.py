@@ -29,6 +29,7 @@ losant_device = Device(LOSANT_DEVICE_ID, LOSANT_ACCESS_KEY, LOSANT_ACCESS_SECRET
 
 #initialize vibration queue
 vibration_data = collections.deque(maxlen=10)
+vibration_timer = 120
 
 #vibrations latch
 vibrations_detected = False
@@ -47,10 +48,11 @@ async def notification_handler(sender, data):
     vibration_data.append(vibration_mag_float)
 
     global vibrations_detected
+    global vibration_timer
 
     if len(vibration_data) > 9:
         vib_stdev = statistics.stdev(vibration_data)
-        print(vib_stdev)
+        #print(vib_stdev)
 
         if not vibrations_detected and vib_stdev > 0.002:
             vibrations_detected = True
@@ -59,13 +61,19 @@ async def notification_handler(sender, data):
                 losant_device.send_state({'vibrationDetected': True, 'vibrationMagnitude': vibration_mag_float})
             else:
                 print('Losant not connected...Status 1')
-        if vibrations_detected and vib_stdev < 0.002:
-            vibrations_detected = False
-            print("No Vibrations or Vibrations Stopped!")
-            if losant_device.is_connected():
-                losant_device.send_state({'vibrationDetected': False, 'vibrationMagnitude': vibration_mag_float })
-            else:
-                print('Losant not connected...Status 0')
+        if vibrations_detected and vib_stdev < 0.001:
+            vibration_timer -= 1
+            print(vibration_timer)
+            if vibration_timer == 0:
+                vibrations_detected = False
+                print("No Vibrations or Vibrations Stopped!")
+                if losant_device.is_connected():
+                    losant_device.send_state({'vibrationDetected': False, 'vibrationMagnitude': vibration_mag_float })
+                else:
+                    print('Losant not connected...Status 0')
+        if vibrations_detected and vib_stdev > 0.001 and vibration_timer < 120:
+            #reset timer if the value jumps back above threshold
+            vibration_timer = 120
 
 async def scan():
     return await BleakScanner.find_device_by_name("Nano33BLE_Vibration")
